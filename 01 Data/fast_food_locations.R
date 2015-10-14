@@ -10,7 +10,7 @@ names(df) <- gsub("\\.+", "_", names(df))
 str(df) # Uncomment this and  run just the lines to here to get column types to use for getting the list of measures.
 
 # Generate List of Measures
-measures <- c("Longnitude", "Lat")
+measures <- c("Row_num", "Longnitude", "Lat")
 
 
 # Make Zip codes all five digits
