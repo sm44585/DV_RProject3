@@ -31,4 +31,13 @@ ggplot() +
         geom="point",
         geom_params=list(), 
         position=position_jitter(width=0.3, height=0)
+  )+
+  layer(
+    data=Plot2_df,
+    mapping=aes(x=as.numeric(POP), y=as.numeric(TOTAL_RESTAURANTS)),
+    stat="smooth",
+    stat_params=list(method="glm", formula=y~poly(x,2)),
+    geom="smooth",
+    geom_params=list(color="red"),
+    position=position_identity()
   )
