@@ -39,9 +39,9 @@ if( length(measures) > 1 || ! is.na(measures)) {
   }
 }
 
-#df$Median <- as.numeric(levels(df$Median))[df$Median]
-#df$Mean <- as.numeric(levels(df$Mean))[df$Mean]
-#df$Pop <- as.numeric(levels(df$Pop))[df$Pop]
+df$Median <- as.numeric(levels(df$Median))[df$Median]
+df$Mean <- as.numeric(levels(df$Mean))[df$Mean]
+df$Pop <- as.numeric(levels(df$Pop))[df$Pop]
 
 write.csv(df, paste(gsub(".csv", "", file_path), ".reformatted.csv", sep=""), row.names=FALSE, na = "")
 
