@@ -1,0 +1,244 @@
+---
+title: "Project 3"
+author: "Spencer Muncey and Chenchao Zang"
+date: "October 16, 2015"
+output: html_document
+---
+# What happens when you join Fast Food Restaurant Location data and Zip Code data?
+For this project, we joined two datasets to produce our plots. There are an endless list of fields that one could join on, like dates, gender, state, and so on. We decided to join two datasets based on the common zip code field present in both to see if the number of fast food locations in a zip code is influenced by the number of people living in that zip code and/or the overall wealth of the zip code as measured by the mean and median salary.
+
+## Fast Food map dataset
+The first dataset comes from [Fast Food Maps](http://www.fastfoodmaps.com/data.html), a website created to show all restaruant locations of the top ten fast food chains in America. The data is from the summer of 2007. Here is a summary of that dataset:
+
+```{r}
+require("jsonlite")
+require("RCurl")
+# Loads the data from Fast Food table into Fast Food dataframe
+# Change the USER and PASS below to be your UTEid
+fast_food <- data.frame(fromJSON(getURL(URLencode('129.152.144.84:5001/rest/native/?query="select * from FASTFOODMAPS_LOCATIONS_2007"'),httpheader=c(DB='jdbc:oracle:thin:@129.152.144.84:1521/PDBF15DV.usuniversi01134.oraclecloud.internal', USER='cs329e_sm44585', PASS='orcl_sm44585', MODE='native_mode', MODEL='model', returnDimensions = 'False', returnFor = 'JSON'), verbose = TRUE), ))
+summary(fast_food)
+head(fast_food)
+```
+
+### Fast Food dataset Extract, Transform, Load (ETL) script
+Here is the script we used to extract, transform, and load the fast food dataset into Oracle:
+```
+#Before running this R file make sure you set you working directory to where the CSV file located.
+
+file_path <- "fastfoodmaps_locations_2007.csv"
+
+df <- read.csv(file_path, stringsAsFactors = FALSE)
+
+# Replace "." (i.e., period) with "_" in the column names.
+names(df) <- gsub("\\.+", "_", names(df))
+
+str(df) # Uncomment this and  run just the lines to here to get column types to use for getting the list of measures.
+
+# Generate List of Measures
+measures <- c("Row_num", "Longnitude", "Lat")
+
+
+# Make Zip codes all five digits
+df$Zip <- gsub(df$Zip, pattern="-.*", replacement = "")
+# remove leading zero on zip codes to match other data set
+df$Zip <- gsub(df$Zip, pattern="^0", replacement = "")
+
+# Get rid of special characters in each column.
+# Google ASCII Table to understand the following:
+for(n in names(df)) {
+  df[n] <- data.frame(lapply(df[n], gsub, pattern="[^ -~]",replacement= ""))
+}
+
+dimensions <- setdiff(names(df), measures)
+
+#dimensions
+if( length(measures) > 1 || ! is.na(dimensions)) {
+  for(d in dimensions) {
+    # Get rid of " and ' in dimensions.
+    df[d] <- data.frame(lapply(df[d], gsub, pattern="[\"']",replacement= ""))
+    # Change & to and in dimensions.
+    df[d] <- data.frame(lapply(df[d], gsub, pattern="&",replacement= " and "))
+    # Change : to ; in dimensions.
+    df[d] <- data.frame(lapply(df[d], gsub, pattern=":",replacement= ";"))
+  }
+}
+
+
+# Get rid of all characters in measures except for numbers, the - sign, and period.dimensions
+if( length(measures) > 1 || ! is.na(measures)) {
+  for(m in measures) {
+    df[m] <- data.frame(lapply(df[m], gsub, pattern="[^--.0-9]",replacement= ""))
+  }
+}
+
+write.csv(df, paste(gsub(".csv", "", file_path), ".reformatted.csv", sep=""), row.names=FALSE, na = "")
+
+tableName <- gsub(" +", "_", gsub("[^A-z, 0-9, ]", "", gsub(".csv", "", file_path)))
+sql <- paste("CREATE TABLE", tableName, "(\n-- Change table_name to the table name you want.\n")
+if( length(measures) > 1 || ! is.na(dimensions)) {
+  for(d in dimensions) {
+    sql <- paste(sql, paste(d, "varchar2(4000),\n"))
+  }
+}
+if( length(measures) > 1 || ! is.na(measures)) {
+  for(m in measures) {
+    if(m != tail(measures, n=1)) sql <- paste(sql, paste(m, "number(38,4),\n"))
+    else sql <- paste(sql, paste(m, "number(38,4)\n"))
+  }
+}
+sql <- paste(sql, ");")
+cat(sql)
+```
+
+### A detailed explanation of each column in the fast food location data set:  
+
+* RESTAURANT - First character of fast food restaurant name (b = Burger King, M = Mcdonald's, etc)
+* ADDRESS - Fast food restaurant's address
+* CITY - The city that the fast food restaurant is located in
+* STATE - The state that the fast food restaurant is located in
+* ZIP - Zip code for that specific fast food restaurant
+* PHONE - Phone number for each fast food restaurant
+* ROW_NUM - Record number 
+* LONGNITUDE - GPS Longitude location
+* LAT - GPS latitude location
+
+## Zip code dataset
+The second dataset comes from the University of Michigan's [Population Studies Center](http://www.psc.isr.umich.edu/dis/census/Features/tract2zip/). The dataset originally came from the 2010 [American Community Survey](http://www.census.gov/programs-surveys/acs/about.html) and the Center stripped out all of the columns except ZIP, POP, MEAN, and MEDIAN salaries. Here is a summary of that dataset:
+
+```{r}
+require("jsonlite")
+require("RCurl")
+# Loads median, mean, and population data into Zip Code dataframe
+zip_code <- data.frame(fromJSON(getURL(URLencode('129.152.144.84:5001/rest/native/?query="select * from MedianZIP32"'),httpheader=c(DB='jdbc:oracle:thin:@129.152.144.84:1521/PDBF15DV.usuniversi01134.oraclecloud.internal', USER='cs329e_sm44585', PASS='orcl_sm44585', MODE='native_mode', MODEL='model', returnDimensions = 'False', returnFor = 'JSON'), verbose = TRUE), ))
+
+zip_code$MEAN <- as.numeric(levels(zip_code$MEAN))[zip_code$MEAN]
+summary(zip_code)
+head(zip_code)
+```
+
+### Zip Code data set Extract, Transform, Load (ETL) script
+Here is the script we used to extract, transform, and load the zip code dataset into Oracle:
+```
+#Before running this R file make sure you set you working directory to where the CSV file located.
+
+file_path <- "MedianZIP-3-2.csv"
+
+df <- read.csv(file_path, stringsAsFactors = FALSE)
+
+# Replace "." (i.e., period) with "_" in the column names.
+names(df) <- gsub("\\.+", "_", names(df))
+
+str(df) # Uncomment this and  run just the lines to here to get column types to use for getting the list of measures.
+
+
+measures <- c("Median", "Mean", "Pop")
+
+# Get rid of special characters in each column.
+# Google ASCII Table to understand the following:
+for(n in names(df)) {
+  df[n] <- data.frame(lapply(df[n], gsub, pattern="[^ -~]",replacement= ""))
+}
+
+dimensions <- setdiff(names(df), measures)
+#dimensions
+if( length(measures) > 1 || ! is.na(dimensions)) {
+  for(d in dimensions) {
+    # Get rid of " and ' in dimensions.
+    df[d] <- data.frame(lapply(df[d], gsub, pattern="[\"']",replacement= ""))
+    # Change & to and in dimensions.
+    df[d] <- data.frame(lapply(df[d], gsub, pattern="&",replacement= " and "))
+    # Change : to ; in dimensions.
+    df[d] <- data.frame(lapply(df[d], gsub, pattern=":",replacement= ";"))
+  }
+}
+
+
+# Get rid of all characters in measures except for numbers, the - sign, and period.dimensions
+if( length(measures) > 1 || ! is.na(measures)) {
+  for(m in measures) {
+    df[m] <- data.frame(lapply(df[m], gsub, pattern="[^--.0-9]",replacement= ""))
+  }
+}
+
+df$Median <- as.numeric(levels(df$Median))[df$Median]
+df$Mean <- as.numeric(levels(df$Mean))[df$Mean]
+df$Pop <- as.numeric(levels(df$Pop))[df$Pop]
+
+write.csv(df, paste(gsub(".csv", "", file_path), ".reformatted.csv", sep=""), row.names=FALSE, na = "")
+
+tableName <- gsub(" +", "_", gsub("[^A-z, 0-9, ]", "", gsub(".csv", "", file_path)))
+sql <- paste("CREATE TABLE", tableName, "(\n-- Change table_name to the table name you want.\n")
+if( length(measures) > 1 || ! is.na(dimensions)) {
+  for(d in dimensions) {
+    sql <- paste(sql, paste(d, "varchar2(4000),\n"))
+  }
+}
+if( length(measures) > 1 || ! is.na(measures)) {
+  for(m in measures) {
+    if(m != tail(measures, n=1)) sql <- paste(sql, paste(m, "number(38,4),\n"))
+    else sql <- paste(sql, paste(m, "number(38,4)\n"))
+  }
+}
+sql <- paste(sql, ");")
+cat(sql)
+```
+
+### A detailed explanation of each column in the Median Zip code data set: 
+* ZIP - US Postal Zip code
+* MEDIAN - Median salary of each zip code
+* MEAN - Mean salary of each zip code
+* POP - Population of each zip code
+
+## Session Info
+This is how Rstudio is set up in order to execute the experiment and produce these results:
+```{r}
+sessionInfo()
+```
+
+### Plot 1: Does the wealth of the zip code affect the number of fast food restaruants in a given zip code?
+
+``` {r fig.width=12, fig.height=9}
+source("../02 Data Wrangling/Project3_Plot1.R", echo = TRUE)
+```
+
+This plot was created using a **LEFT_JOIN** to see whether there exists a relationship between the wealth of the zip code (we used median salary as a proxy for wealth) and the number of fast food restarants in that zip code. So, we looked at the top and bottom ten percent of zip codes based on median salary. We intially believed that the wealthier the zip code was, the less fast food restaurants there would be because wealthy people tend to have healthier foods because they can afford it. The plot seems to confirm that phenomenon.
+
+Going off the same logic, we thought that the poorer a zip code was, the more fast food restaurants that would be located in that zip code. However, the plot shows that this does not seem to be the case, and instead implies that the zip codes with the middle 80% of wealth (middle class) have the most number of fast food restaurants.
+
+#### Data Wrangling R Workflow to produce the dataframe that powers this plot: 
+```
+Plot1_df %>% select(ZIP, MEDIAN, RESTAURANT) %>% mutate(MEDIAN_SAL_PERCENT = cume_dist(Plot1_df$MEDIAN)) %>% filter(MEDIAN_SAL_PERCENT  <= .1 | MEDIAN_SAL_PERCENT  >= .9) %>% group_by(ZIP) %>% summarize(MEDIAN = first(MEDIAN), TOTAL_RESTAURANTS = n())
+```
+
+### Plot 2: Does population density influence the number of restaurants in a zip code?
+
+``` {r fig.width = 10, fid.height = 20}
+source("../02 Data Wrangling/Project3_Plot2.R", echo = TRUE)
+```
+
+This plot was created using a **SEMI_JOIN** to first eliminate any zip codes in the zip code dataset where there wasn't a corresponding restaurant location in the fast food dataset. Then an **INNER_JOIN** was used to combine both datasets to see whether there exists a relationship between the population density of the zip code and the number of fast food restaruants in that zip code. We filtered the data by the top and bottom 10 percent of zip codes by population. Our hypothesis was that the more people that lived in a zip code, the more fast food restaurant locations there would be in that particular zip code.
+
+The plot did reveal such a trend, but what was so suprising and interesting was how stark that trend was: in looking at box plots for the top and bottom 10 percent, there is almost a 10 fold difference in the number of fast food restaurant locations between the least and most populated zip codes. For the bottom 10 percent, the average total number of fast food restaruants was just slightly above one, whereas for the most populated, that number was almost ten locations!
+
+#### Data Wrangling R Workflow to produce the dataframe that powers this plot: 
+```
+Plot2_df_both <- Plot2_df  %>% mutate(POP_PERCENT = cume_dist(Plot2_df$POP)) %>% filter(POP_PERCENT <= .1 | POP_PERCENT >= .9) %>% group_by(ZIP) %>% summarize(POP = first(POP), TOTAL_RESTAURANTS = n())
+
+Plot2_df_bot10 <- Plot2_df  %>% mutate(POP_PERCENT = cume_dist(Plot2_df$POP)) %>% filter(POP_PERCENT <= .1) %>% group_by(ZIP) %>% summarize(POP = first(POP), TOTAL_RESTAURANTS = n())
+
+Plot2_df_top10 <- Plot2_df  %>% mutate(POP_PERCENT = cume_dist(Plot2_df$POP)) %>% filter(POP_PERCENT >= .9) %>% group_by(ZIP) %>% summarize(POP = first(POP), TOTAL_RESTAURANTS = n())
+```
+### Plot 3: Can you predict the number of restaurants located in a zip code based on its population?
+
+``` {r fig.width = 9, fid.height = 9}
+source("../02 Data Wrangling/Project3_Plot3.R", echo = TRUE)
+```
+
+This plot was created using a **INNER_JOIN** to see whether there exists the ability to predict the number of fast food restaruants in a zip code given its population. Before creating this plot, plot 2 confirmed for us that the more populated zip codes had much higher total fast food reastuarant locations. As such, we hypothesized that there was a positive trend between those two variables because one could reason that the more people there are, the more restaruants there would be to serve all of those people.
+
+However, upon adding the trend line, the plot tells a different story and completely surprised us. When a zip code has more than roughly 80,000 people living within it, the number of fast food restaurant locations not only levels off, but the trend actually suggests that the number of locations actually decreases, which is not what we orignally hypothesized.
+
+#### Data Wrangling R Workflow to produce the dataframe that powers this plot: 
+```
+Plot3_df <- Plot3_df %>% select(ZIP, MEDIAN, RESTAURANT, POP) %>%group_by(ZIP,POP) %>% summarize(TOTAL_RESTAURANTS = n()) %>%ungroup()%>%arrange(POP)
+```
